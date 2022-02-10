@@ -133,22 +133,22 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
       gamma_hat <- collapse::flm(y = u_cent, X = as.matrix.data.frame(cbind(x_cent, fes)), w = weights)
 
       # predict xg = uhat (=linear prediction from the fitted model) ###
-      xg <- as.matrix(cbind(x_cent, data[, ..fixed])) %*% gamma_hat
-      resid <- u - xg
+      u_hat <- as.matrix(cbind(x_cent, data[, ..fixed])) %*% gamma_hat
+      resid <- u_cent - u_hat
 
     }
 
-    # replace elements in Xg with zero if abs(Xg) < tol:
-    xg[abs(xg) < tol] <- 0
+     # replace elements in Xg with zero if abs(Xg) < tol:
+     #u_hat[abs(u_hat) < tol] <- 0
 
     # break out of loop once all predicted values become positive
-    if (all(xg <= 0)) {
+    if (all(abs(resid) < tol)) {
       break
     }
 
     # Update elements in u with help of ReLu function:
-    u <- sapply(u, function(z) {
-      u[z] <- min(xg[z], 0)
+    u_cent[y == 0] <- sapply(u_cent[y == 0], function(z) {
+      u_cent[z] <- min(u_hat[z], 0)
     })
     # update iterator
     iter <- iter + 1
