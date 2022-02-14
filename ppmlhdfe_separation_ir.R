@@ -3,6 +3,10 @@
 
 # Resources:
 # https://github.com/sergiocorreia/ppmlhdfe/blob/master/guides/separation_primer.md
+# Undocumented warning about too small values for 'mu'
+# https://github.com/sergiocorreia/ppmlhdfe/blob/d3036a45f0d7d63c4cc618c8ded2f37a1d4dbb96/src/ppmlhdfe.mata#L539
+# IR-separation coded in mata:
+# https://github.com/sergiocorreia/ppmlhdfe/blob/master/src/ppmlhdfe_separation_relu.mata
 
 # (Perfect) Separation:
 # Let z := Xr be a linear combination of regressors.
@@ -35,7 +39,6 @@ benchmark_li <- lapply(1:18, FUN = function(z) {
 
 # IR algorithm adopted from Primer readme; translated to R: =====
 # algorithm differs in paper and GH readme; sticking to Paper, because it is more recent!
-
 
 ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5) {
 
@@ -105,7 +108,8 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
   # Iteration counter
   iter <- 0
 
-  # Loop will go on forever, unless it is broken by nested if statement
+  # Loop ==============
+  # Will go on forever, unless it is broken by nested if statement
   while (TRUE) {
 
     print(paste('iteration', iter))
