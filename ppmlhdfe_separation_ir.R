@@ -90,7 +90,7 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
     x <- data[, !c(..dep, ..fixed)]
   }
 
-  else if (is.na(indep)) {
+  else if (anyNA(indep)) {
     cat("User specified NA for indep; function takes fixed effects variables as regressors")
 
     # If strings were parsed, use boolean indexing
@@ -101,18 +101,18 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
     # x <- data[, ..fixed]
   }
 
-  # print('******')
-  # print('dependent variable:')
-  # print(head(y))
-  # print('fixed effects mat')
-  # print(head(fes))
-  # print('regressor mat')
-  # print(head(x))
+   # print('******')
+   # print('dependent variable:')
+   # print(head(y))
+   # print('fixed effects mat')
+   # print(head(fes))
+   # print('regressor mat')
+   # try(print(head(x)))
 
   # Initialise parameters for algorithm: #######
   u <- as.matrix(ifelse(data[, y] == 0, 1, 0)) # u takes 1 if y is 0 and 0 otherwise
   K <- ceiling(nrow(u) / tol^2) # Weight structure K
-  w <- ifelse(data[, y] > 0, K, 1) # Weight vector to apply weights
+  weights <- ifelse(data[, y] > 0, K, 1) # Weight vector to apply weights
 
   # Iteration counter
   iter <- 0
@@ -122,11 +122,11 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
 
     print(paste('iteration', iter))
 
-    # if fixed effects variables are only variables specified:
-    if (is.na(indep)) {
+    # if no regressors except for FE are specified:
+    if (anyNA(indep)) {
 
-      # Trying to combine centering data directly with regression (with collapse)
-      gamma_hat <- collapse::flm(y = u, X = as.matrix.data.frame(fes), w = w)
+      # Estimate coefficients with just the FEs
+      gamma_hat <- collapse::flm(y = u, X = as.matrix.data.frame(fes), w = weights)
 
       # predict xg = uhat (calculates the linear prediction from the fitted model) ###
       xg <- as.matrix.data.frame(data[, ..fixed]) %*% gamma_hat
@@ -136,11 +136,16 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
     # In all other cases, where regressors other than FEs are specified:
     else {
 
-      # Trying to combine centering data directly with regression (with collapse)
-      gamma_hat <- collapse::flm(y = u, X = as.matrix.data.frame(cbind(x, fes)), w = w)
+      # Partial out FE from regressors:
+      #u_cent <- collapse::HDW(x = u, fl = fes, stub = F)
+      #x_cent <- collapse::HDW(x = x, fl = fes, stub = F)
+      #u_cent <- u; x_cent <- x
+
+      # Estimate with centered data
+      gamma_hat <- collapse::flm(y = u, X = as.matrix.data.frame(cbind(x, fes)), w = weights)
 
       # predict xg = uhat (calculates the linear prediction from the fitted model) ###
-      xg <- as.matrix.data.frame(data[, c(..indep, ..fixed)]) %*% gamma_hat
+      xg <- as.matrix(cbind(data[, ..fixed], x)) %*% gamma_hat
 
     }
 
@@ -171,6 +176,7 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
 
 ir_sep(benchmark_li[[4]], dep = 'y', fixed = 2:3, indep = NA)
 #ir_sep(benchmark_li[[3]], dep = 'y', fixed = 2:4, indep = 2:4)
+#ir_sep(benchmark_li[[1]], dep = 1, fixed = 4:5, indep = 2:3)
 
 
 ### Stata Code from GH Primer website below:

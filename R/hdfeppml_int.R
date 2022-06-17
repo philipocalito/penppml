@@ -92,6 +92,8 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
   n <- length(y)
 
   # estimation algorithm
+
+  ### initialising some key variables used later #########
   crit <- 1
   iter <- 0
   old_deviance <- 0
@@ -120,35 +122,60 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
 
   }
 
+    if (verbose == TRUE) {
+      print('colcheck successful, regressor matrix updated')
+    }
+
+  }
+  # IRLS algorithm ------------------------------------
   if (verbose == TRUE) {
-    print("beginning estimation")
+    print("beginning IRLS estimation")
   }
 
   while (crit>tol & iter<maxiter) {
     iter <- iter + 1
 
     if (verbose == TRUE) {
-      print(iter)
+      print(paste('-- Iteration: ', iter, '--'))
     }
-
+    # If it is the first iteration, initialise mu and z ================
     if (iter == 1) {
-      ## initialize "mu"
-      if (is.null(mu)) mu  <- (y + mean(y))/2
-      z   <- (y-mu)/mu + log(mu)
-      eta <- log(mu)
+      ## initialize "mu" ########
+      if (is.null(mu)) {
+          if (verbose == TRUE) {
+            print(paste('user did not supply initial value for mu; initialising mu'))
+          }
+
+        mu  <- (y + mean(y))/2
+      }
+
+      # computing values for z and eta from mu #########
+      print(paste('Initialising z and eta'))
+      z   <- (y-mu)/mu + log(mu) # transformed dependent variable
+      eta <- log(mu) # eta is initialised but never used in code???
       last_z <- z
+
+      # initialise z ########
       if (is.null(init_z)) {
+
+        print(paste('user did not supply initial value for z; initialising z from mu and y'))
+
         reg_z  <- matrix(z)
-      } else {
+      }
+
+      else {
         reg_z <- init_z
       }
       if(!missing(x)){
+        # copying regressor matrix to internal object
         reg_x  <- x
       }
 
-    } else {
+    # Do this in all iterations, except for first =================
+    else {
       last_z <- z
-      z <- (y-mu)/mu + log(mu)
+      z <- (y-mu)/mu + log(mu) # transformed dependent variable
+      # objects used in regression:
       reg_z  <- matrix(z - last_z + z_resid)
       if(!missing(x)){
         reg_x  <- x_resid
@@ -156,11 +183,13 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
       ## colnames(reg_x)   <- colnames(x)
     }
     if (verbose == TRUE) {
-      print("within transformation step")
+      print("partialing out fixed effects, weighting with mu")
+      print('this yields residuals for z and x')
     }
 
     if(!missing(fes)){
       if(is.null(fes)){
+        # FWL theorem; CGZ(2020), page. 100. These residuals should be equal to residuals from IRLS
         z_resid <- collapse::fwithin(x=reg_z, g=factor(rep(1,length(reg_z))), w = mu)
         if(!missing(x)){
           x_resid <- collapse::fwithin(x=reg_x,g=factor(rep(1,length(reg_z))), w = mu)
@@ -179,21 +208,22 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
     }
 
     if (verbose == TRUE) {
-      print("obtaining coefficients")
+      print("-- obtaining coefficients --")
     }
 
-    if (verbose == TRUE) {
-      print(iter)
-      #print(b)
-    }
+    # Calculating model residuals ###########
+    # Standard formula e = y - X'ß applied here...
 
     if(!missing(x)){
+      # Regression with within transformed versions of x and z, weighted with sqrt(mu)
       reg <- fastolsCpp(sqrt(mu) * x_resid, sqrt(mu) * z_resid)  #faster without constant
       b[include_x] <- reg
       reg <- list("coefficients" = b) # this rewrites reg each time. Better to initialize upfront?
 
+      # If include_x is a scalar:
       if (length(include_x) == 1) {
         reg$residuals <- z_resid - x_resid * b[include_x]
+        # If include_x is a matrix:
       } else {
         reg$residuals <- z_resid - x_resid %*% b[include_x]
       }
@@ -202,30 +232,39 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
       reg$residuals <- z_resid
     }
 
+    # Updating mu #######
+    # FWL theorem implies that z - reg$residuals is the same as X'ß
     mu <- as.numeric(exp(z - reg$residuals))
     mu[which(mu < 1e-190)] <- 1e-190
     mu[mu > 1e190] <- 1e190
 
+    # Some info for user if verbose is T:
     if (verbose == TRUE) {
-      print("info on residuals")
-      print(max(reg$residuals))
-      print(min(reg$residuals))
+      print("-- info on residuals --")
+      print(paste('larest residual: ', max(reg$residuals)))
+      print(paste('smallest residual: ', min(reg$residuals)))
 
-      print("info on means")
-      print(max(mu))
-      print(min(mu))
+      print("-- info on means --")
+      print(paste('maximum mu: ', max(mu)))
+      print(paste('minimum mu: ', min(mu)))
 
-      print("info on coefficients")
-      print(max(b[include_x]))
-      print(min(b[include_x]))
+      print("-- info on coefficients --")
+      print(paste('largest coefficient: ', max(b[include_x])))
+      print(paste('smallest coefficient: ', min(b[include_x])))
     }
 
+    ### Checking for Convergence =====================
+
+    ### calculate deviance ###########################
+
     if (verbose == TRUE) {
-      print("calculating deviance")
+      print("-- calculating deviance --")
     }
 
-    # calculate deviance
+    # what is temp?
     temp <-  -(y * log(y/mu) - (y-mu))
+
+    # Update temp at the index where y is zero (what does that do=)
     temp[which(y == 0)] <- -mu[which(y == 0)]
     # print("How many temp NA:")
     # print(which(is.na(temp)))
@@ -240,28 +279,50 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
 
     if (deviance < 0) deviance = 0
 
+      if (verbose == TRUE) print(paste('deviance was less than 0; set new deviance to 0'))
+    }
+
+    # Calculate difference in deviance
     delta_deviance <- old_deviance - deviance
 
+    # Set delta deviance to deviance, if delta deviance is non missing and deviance is less than 10% of delta_deviance
     if (!is.na(delta_deviance) & (deviance < 0.1 * delta_deviance)) {
+      if (verbose == TRUE) {
+        print(paste('delta deviance is non missing; deviance is less than 10% of delta deviance: \n
+                    Setting delta_deviance to deviance value: ', deviance))
+      }
+      # Updating delta_deviance
       delta_deviance <- deviance
     }
+
+    # Checking critical value #################################
     if (verbose == TRUE) {
-      print("checking critical value")
+      print("-- checking critical value --")
     }
+
+    # compare old_deviance and deviance; take minimum,
+    # then, compare minimum deviance with 0.1; take maximum
+    # Is denom_crit a ReLU? (https://en.wikipedia.org/wiki/Rectifier_(neural_networks))
     denom_crit = max(c(min(c(deviance, old_deviance)), 0.1))
     crit = abs(delta_deviance) / denom_crit
     if (verbose == TRUE) {
-      print(deviance)
-      print(crit)
+      print('critical value is a fraction')
+      print(paste('numerator is: ', abs(delta_deviance), '; denominator is: ', denom_crit))
+      print(paste('...resulting in critical value: ', crit))
+      print(paste('current deviance is: ', deviance))
+      print(paste('as long as', crit, 'is smaller than', tol, ', loop will continue.'))
     }
     old_deviance <- deviance
+    # While-loop ends here ###############
   }
+
 
   temp <-  -(y * log(y / mu) - (y - mu))
   temp[which(y == 0)] <- 0
 
   if (verbose == TRUE) {
-    print("converged")
+    print('while loop completed')
+    print("-- converged --")
   }
 
   ## elements to return
@@ -286,8 +347,10 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
     }
     reg[["z_resid"]] <- z_resid
   }
+  # Computing Standard errors --------------------------
   if(!missing(x)){
     if (vcv) {
+      # If cluster has been parsed:
       if(!is.null(cluster)) {
         nclusters  <- nlevels(droplevels(cluster, exclude = if(anyNA(levels(cluster))) NULL else NA))
         het_matrix <- (1 / nclusters) * cluster_matrix((y - mu) / sum(sqrt(mu)), cluster, x_resid)
@@ -296,10 +359,22 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
         V          <- (1/nclusters) * chol2inv(R) %*% het_matrix %*% chol2inv(R)
         #V          <- (1/nclusters)*solve(W)%*%het_matrix%*%solve(W)
         V          <- nclusters / (nclusters - 1) * V
+
+        # If cluster hasn't been parsed:
       } else {
         e = y - mu
         het_matrix = (1/n) * t(x_resid*e)  %*% (x_resid*e)
         W          = (1/n) * (t(mu*x_resid) %*% x_resid)
+        message('****** Begin debug on W (R) Matrix ******')
+        print(paste('class of W: ', class(W)))
+
+
+        #print(is.na(W), is.nan(W))
+        #print(W)
+        #print(class(R))
+
+        reg[['W']] <- W
+        message('****** End debug on W (R) Matrix ******')
         R          = try(chol(W), silent = TRUE)
         V          = (1/n) * chol2inv(R) %*% het_matrix %*% chol2inv(R)
         V          = (n / (n - 1)) * V
