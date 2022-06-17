@@ -32,23 +32,11 @@ benchmark_li <- lapply(1:18, FUN = function(z) {
   }
 })
 
-# Test Separation Datasets from Primer readme: ######
-test1 <- data.table(y = c(0, 1, 0, 0, 1),
-                   id1 = c(1, 1, 2, 2, 2),
-                   id2 = c(1, 1, 1, 2, 2))
 
-test2 <- data.table(y = c(0, 0, 0, 1, 2, 3),
-                    id1 = c(2, -1, 0, 0, 5, 6),
-                    id2 = c(-1, 2, 0, 0, -10, -12))
+# IR algorithm adopted from Primer readme; translated to R: =====
+# algorithm differs in paper and GH readme; sticking to Paper, because it is more recent!
 
 
-test3 <- data.table(y = c(0, 0, 0, 0, 0, 2, 3, 5, 7, 10),
-                    x1 = c(0, 0, 0, 0, 1, 21, 0, 0, 0, -18),
-                    x2 = c(1, 0, 0, 0, 9, 21, 0, 0, 0, -18),
-                    x3 = c(0, 0, 0, 0, 0, 21, 0, 0, 0, 0))
-
-
-# IR algorithm adopted from Primer readme; translated to R:
 ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5) {
 
   # Processing user input: #####
@@ -122,30 +110,31 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
 
     print(paste('iteration', iter))
 
-    # if no regressors except for FE are specified:
+    # if no regressors other than FE are specified:
     if (anyNA(indep)) {
 
-      # Estimate coefficients with just the FEs
+      # weighted LS estimation with just the FEs
       gamma_hat <- collapse::flm(y = u, X = as.matrix.data.frame(fes), w = weights)
 
       # predict xg = uhat (calculates the linear prediction from the fitted model) ###
       xg <- as.matrix.data.frame(data[, ..fixed]) %*% gamma_hat
+      resid <- u - xg
 
     }
 
     # In all other cases, where regressors other than FEs are specified:
     else {
 
-      # Partial out FE from regressors:
-      #u_cent <- collapse::HDW(x = u, fl = fes, stub = F)
-      #x_cent <- collapse::HDW(x = x, fl = fes, stub = F)
-      #u_cent <- u; x_cent <- x
+      # Partial out FE from regressors and dependent variable:
+      u_cent <- collapse::HDW(x = u, fl = fes, stub = F)
+      x_cent <- collapse::HDW(x = x, fl = fes, stub = F)
 
-      # Estimate with centered data
-      gamma_hat <- collapse::flm(y = u, X = as.matrix.data.frame(cbind(x, fes)), w = weights)
+      # weighted LS estimation on centered data & FEs
+      gamma_hat <- collapse::flm(y = u_cent, X = as.matrix.data.frame(cbind(x_cent, fes)), w = weights)
 
-      # predict xg = uhat (calculates the linear prediction from the fitted model) ###
-      xg <- as.matrix(cbind(data[, ..fixed], x)) %*% gamma_hat
+      # predict xg = uhat (=linear prediction from the fitted model) ###
+      xg <- as.matrix(cbind(x_cent, data[, ..fixed])) %*% gamma_hat
+      resid <- u - xg
 
     }
 
@@ -153,13 +142,13 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
     xg[abs(xg) < tol] <- 0
 
     # break out of loop once all predicted values become positive
-    if (all(xg >= 0)) {
+    if (all(xg <= 0)) {
       break
     }
 
     # Update elements in u with help of ReLu function:
-    u <- sapply(u, function(k) {
-      u[k] <- max(xg[k], 0)
+    u <- sapply(u, function(z) {
+      u[z] <- min(xg[z], 0)
     })
     # update iterator
     iter <- iter + 1
@@ -171,13 +160,16 @@ ir_sep <- function(data = test1, dep = 1, indep = NULL, fixed = NULL, tol = 1e-5
 
   print('done')
 
-  return(results)
+  # For benchmarking examples Check whether separated and is_sep are identical:
+  #print(class(results[['is_sep']])); print(class(results[['separated']]))
+  print(isTRUE(all.equal(results[['is_sep']], results[['separated']])))
+
+  return(NULL)
 }
 
 ir_sep(benchmark_li[[4]], dep = 'y', fixed = 2:3, indep = NA)
 #ir_sep(benchmark_li[[3]], dep = 'y', fixed = 2:4, indep = 2:4)
 #ir_sep(benchmark_li[[1]], dep = 1, fixed = 4:5, indep = 2:3)
-
 
 ### Stata Code from GH Primer website below:
 #
