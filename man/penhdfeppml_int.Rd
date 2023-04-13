@@ -16,15 +16,17 @@ penhdfeppml_int(
   penweights = NULL,
   saveX = TRUE,
   mu = NULL,
-  colcheck_x = TRUE,
+  colcheck_x = FALSE,
   colcheck_x_fes = TRUE,
   init_z = NULL,
   post = FALSE,
   verbose = FALSE,
+  phipost = TRUE,
   standardize = TRUE,
   method = "placeholder",
   cluster = NULL,
-  debug = FALSE
+  debug = FALSE,
+  gamma_val = NULL
 )
 }
 \arguments{
@@ -51,8 +53,13 @@ passed on to \code{collapse::fhdwithin}.}
 \item{saveX}{Logical. If \code{TRUE}, it returns the values of x and z after partialling out the
 fixed effects.}
 
-\item{mu}{Optional: initial values of the conditional mean \eqn{\mu}, to be used as weights in the
-first iteration of the algorithm.}
+\item{mu}{A vector of initial values for mu that can be passed to the command.}
+
+\item{colcheck_x}{Logical. If \code{TRUE}, this checks collinearity between the independent variables and drops the
+collinear variables.}
+
+\item{colcheck_x_fes}{Logical. If \code{TRUE}, this checks whether the independent variables are perfectly explained
+by the fixed effects drops those that are perfectly explained.}
 
 \item{init_z}{Optional: initial values of the transformed dependent variable, to be used in the
 first iteration of the algorithm.}
@@ -60,6 +67,10 @@ first iteration of the algorithm.}
 \item{post}{Logical. If \code{TRUE}, estimates a post-penalty regression with the selected variables.}
 
 \item{verbose}{Logical. If \code{TRUE}, it prints information to the screen while evaluating.}
+
+\item{phipost}{Logical. If \code{TRUE}, the plugin coefficient-specific penalty weights are iteratively
+calculated using estimates from a post-penalty regression when \code{method == "plugin"}. Otherwise,
+these are calculated using estimates from a penalty regression.}
 
 \item{standardize}{Logical. If \code{TRUE}, x variables are standardized before estimation.}
 
@@ -70,6 +81,8 @@ coefficient-specific penalty weights (see details). Otherwise, a single global p
 
 \item{debug}{Logical. If \code{TRUE}, this helps with debugging penalty weights by printing output
 of the first iteration to the console and stopping the estimation algorithm.}
+
+\item{gamma_val}{Numerical value that determines the regularization threshold as defined in Belloni, Chernozhukov, Hansen, and Kozbur (2016). NULL default sets parameter to 0.1/log(n).}
 }
 \value{
 If \code{method == "lasso"} (the default), an object of class \code{elnet} with the elements

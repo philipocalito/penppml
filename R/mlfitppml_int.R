@@ -25,6 +25,13 @@
 #' @param xval Logical. If \code{TRUE}, it carries out cross-validation.
 #' @param K Maximum number of iterations for the plugin algorithm to converge.
 #' @param vcv Logical. If \code{TRUE} (the default), the post-estimation model includes standard errors.
+#' @param phipost Logical. If \code{TRUE}, the plugin coefficient-specific penalty weights are iteratively
+#' calculated using estimates from a post-penalty regression when \code{method == "plugin"}. Otherwise,
+#' these are calculated using estimates from a penalty regression.
+#' @param colcheck_x Logical. If \code{TRUE}, this checks collinearity between the independent variables and drops the
+#' collinear variables.
+#' @param colcheck_x_fes Logical. If \code{TRUE}, this checks whether the independent variables are perfectly explained
+#' by the fixed effects drops those that are perfectly explained.
 #' @inheritParams penhdfeppml_int
 #'
 #' @return A list with the following elements:
@@ -65,25 +72,44 @@
 #'
 #' @inheritSection hdfeppml_int References
 
-mlfitppml_int = function(y, x, fes, lambdas, penalty = "lasso", tol = 1e-8, hdfetol = 1e-4, colcheck_x = TRUE, colcheck_x_fes = TRUE,
+mlfitppml_int = function(y, x, fes, lambdas, penalty = "lasso", tol = 1e-8, hdfetol = 1e-4, colcheck_x = FALSE, colcheck_x_fes = TRUE,
                      post = TRUE, cluster = NULL, method = "bic", IDs = 1:n, verbose = FALSE, xval = FALSE,
-                     standardize = TRUE, vcv = TRUE, penweights = NULL, K = 15) {
+                     standardize = TRUE, vcv = TRUE, phipost=TRUE, penweights = NULL, K = 15, gamma_val=NULL, mu=NULL) {
 
   xnames <- colnames(x)
   n      <- length(y)
 
   # collinearity check: if option selected drop x's that are perfectly collinear beforehand
-  if (colcheck_x==TRUE | colcheck_x_fes==TRUE){
+  if (colcheck_x==TRUE & colcheck_x_fes==TRUE){
     include_x <- collinearity_check(y,x,fes,1e-6, colcheck_x=colcheck_x, colcheck_x_fes=colcheck_x_fes)
     x <- x[,include_x]
     colnames(x) <- xnames[include_x]
     xnames <- xnames[include_x]
     colcheck_x_post = FALSE
     colcheck_x_fes_post = FALSE
-  } else {
+  }
+  if (colcheck_x==FALSE & colcheck_x_fes==FALSE){
     colcheck_x_post = TRUE
     colcheck_x_fes_post = TRUE
   }
+  if (colcheck_x==TRUE & colcheck_x_fes==FALSE){
+    include_x <- collinearity_check(y,x,fes,1e-6, colcheck_x=colcheck_x, colcheck_x_fes=colcheck_x_fes)
+    x <- x[,include_x]
+    colnames(x) <- xnames[include_x]
+    xnames <- xnames[include_x]
+    colcheck_x_post = TRUE
+    colcheck_x_fes_post = FALSE
+  }
+  if (colcheck_x==FALSE & colcheck_x_fes==TRUE){
+    include_x <- collinearity_check(y,x,fes,1e-6, colcheck_x=colcheck_x, colcheck_x_fes=colcheck_x_fes)
+    x <- x[,include_x]
+    colnames(x) <- xnames[include_x]
+    xnames <- xnames[include_x]
+    colcheck_x_post = FALSE
+    colcheck_x_fes_post = TRUE
+  }
+
+
   # "xval" = "cross-validation". If this option is selected, set up vectors to store cross-validation results
   if (xval==TRUE) {
     xval_rmse  <- matrix(nrow = 1, ncol = length(lambdas))
@@ -96,29 +122,25 @@ mlfitppml_int = function(y, x, fes, lambdas, penalty = "lasso", tol = 1e-8, hdfe
 
   # method == "plugin" => use plugin method, which iterates on regressor-specific penalty weights.
   if (method == "plugin" & xval == FALSE) {
-
+    if(is.null(gamma_val)){gamma_val <- 0.1/log(n)}
     # for storing current estimates
     pen_beta <- matrix(0,nrow = ncol(x), ncol = 1)
 
     # this is the subcommand that implements the iterative plugin estimator
     penreg   <- penhdfeppml_cluster_int(y=y,x=x,fes=fes,tol=tol,hdfetol=hdfetol,penalty=penalty,
-                                    cluster=cluster,colcheck_x=FALSE,colcheck_x_fes=FALSE,post=FALSE,verbose=verbose,K=K)
+                                    cluster=cluster,colcheck_x=FALSE,colcheck_x_fes=FALSE,post=FALSE,verbose=verbose,phipost=phipost,K=K, gamma_val=gamma_val, mu=mu)
 
     ses <- matrix(NA,nrow = ncol(x), ncol = 1)
 
     # if "post", implement post-lasso PPML using selected covariates
     if (post) {
       x_select <- penreg$x_resid[,as.numeric(penreg$beta)!=0]
-
       # "pen_beta_pre" are raw lasso coefficients
       pen_beta_pre <- penreg$beta
       #x_select <- x[,as.numeric(penreg$beta)!=0]
       if(length(x_select)!=0){
-        print("post1")
         ppml_temp <- hdfeppml_int(y=y,x=x_select,fes=fes,tol=tol,hdfetol=hdfetol,mu=penreg$mu,
                               colcheck_x=colcheck_x_post, colcheck_x_fes = colcheck_x_fes_post, cluster=cluster)
-        print("post2")
-        print(ppml_temp$coefficients)
 
         pen_beta[which(penreg$beta!=0),1]  <- ppml_temp$coefficients
         pen_bic   <- ppml_temp$bic
@@ -136,8 +158,10 @@ mlfitppml_int = function(y, x, fes, lambdas, penalty = "lasso", tol = 1e-8, hdfe
       pen_beta_pre <- t(pen_beta_pre)
       colnames(pen_beta_pre) <- xnames
     }
-    # store results
-    results <- list("beta" = t(pen_beta), "beta_pre" = t(pen_beta_pre), "deviance" = penreg$deviance, "bic" = penreg$bic, "lambda" = penreg$lambda, "phi" =penreg$phi, "ses" =t(ses))
+    # store results, conditionally, because post may not be true
+    if(post){results <- list("beta" = t(pen_beta), "beta_pre" = t(pen_beta_pre), "deviance" = penreg$deviance, "bic" = penreg$bic, "lambda" = penreg$lambda, "phi" =penreg$phi, "ses" =t(ses))} else {
+      results <- list("beta" = t(pen_beta), "deviance" = penreg$deviance, "bic" = penreg$bic, "lambda" = penreg$lambda, "phi" =penreg$phi, "ses" =t(ses))
+    }
   } else {
 
     # if method != "plugin", do the following:
@@ -153,7 +177,7 @@ mlfitppml_int = function(y, x, fes, lambdas, penalty = "lasso", tol = 1e-8, hdfe
       print(lambdas[v])
       if (v==1) {
         penreg <- penhdfeppml_int(y=y,x=x,fes=fes,lambda=lambdas[v],tol=tol,hdfetol=hdfetol,
-                              penalty=penalty,colcheck_x=FALSE,colcheck_x_fes=FALSE,post=FALSE,standardize=standardize,method=method,cluster=cluster,penweights=penweights)
+                              penalty=penalty,colcheck_x=FALSE,colcheck_x_fes=FALSE,post=FALSE,standardize=standardize,method=method,cluster=cluster,penweights=penweights, mu=mu)
       } else {
         last_penbeta <- penreg$beta
         penreg <- penhdfeppml_int(y=y,x=penreg$x_resid,fes=fes,lambda=lambdas[v],tol=tol,hdfetol=hdfetol,

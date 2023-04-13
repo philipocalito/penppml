@@ -25,11 +25,17 @@ knitr::opts_chunk$set(
 To install and load `penppml`, you can use the following commands:
 
 ```{r setup 1, eval = FALSE}
-install.packages(penppml)
+install.packages("penppml")
 ```
-```{r setup 2}
+
+```{r, eval=FALSE}
 library(penppml)
 ```
+
+```{r, hide=TRUE, eval=TRUE}
+devtools::load_all()
+```
+
 
 # Data Sets
 
@@ -47,7 +53,7 @@ knitr::kable(head(countries, 10), format = "pipe", caption = "Table 2: Country D
 
 This enables users to easily filter by region or subregion. For instance, if we want to restrict our analysis to countries in the Americas, we can do the following:
 
-```{r filter trade data}
+```{r filter trade data, eval=TRUE}
 selected <- countries$iso[countries$region %in% c("Americas")]
 trade2 <- trade[(trade$exp %in% selected) & (trade$imp %in% selected), -(5:6)] # We remove columns 5 and 
 # 6 because these variables are not needed in our regressions.
@@ -59,7 +65,7 @@ We will show the capabilities of this package using the filtered `trade2` data f
 
 The package enables users to run unpenalized PPML regressions with HDFE, using the `hdfeppml` function as follows:
 
-```{r try hdfeppml}
+```{r try hdfeppml, eval=TRUE}
 reg1 <- hdfeppml(data = trade2,
                  dep = "export",
                  fixed = list(c("exp", "time"), 
@@ -98,6 +104,17 @@ knitr::kable(list(results[1:8, ], results[9:16, ]),
 ```
 
 (Note that the functions is automatically dropping perfectly collinear variables from the estimation algorithm and reporting `NA` as the coefficient.)
+
+If we want to specify the independent variable, we can specify indep as pointing to columns 5 to 7 with the following code. 
+
+```{r try hdfeppml2, eval=FALSE}
+reg1_indep <- hdfeppml(data = trade2, indep=5:7,
+                 dep = "export",
+                 fixed = list(c("exp", "time"), 
+                              c("imp", "time"),
+                              c("exp", "imp")))
+```
+
 
 # Penalized PPML estimation with HDFE
 
@@ -139,7 +156,7 @@ ggplot2::ggplot(data = results, mapping = ggplot2::aes(x = lambda, y = coefficie
 
 The user can also get a penalized PPML regression without high-dimensional fixed effects. To do so, simply set the option fixed to NULL.
 
-```{r try mlfitpenppml lasso, results = FALSE}
+```{r try mlfitpenppml lasso nofe, results = FALSE}
 lambdas <- c(0.025, 0.01, 0.0075, 0.005, 0.0025, 0.001, 0.00075, 0.0005, 0.00025, 0.0001, 0)
 
 reg2_nofe <- mlfitppml(data = trade2,
@@ -222,7 +239,7 @@ Now the function also returns a `rmse` element that includes the cross-validatio
 reg5$rmse
 ```
 
-```{r try cross validation, eval = FALSE}
+```{r try cross validation nofe, eval = FALSE}
 reg5_nofe <- mlfitppml(data = trade2,
                   dep = "export",
                   fixed = NULL,
@@ -280,7 +297,38 @@ knitr::kable(list(results[1:7,], results[8:14,]),
              digits = 4)
 ```
 
-We can see that the plugin lasso is very strict: only two provisions have non-zero coefficients when the penalties are set at the level suggested by the plugin algorithm. Compare this to the cross-validation results, which didn't remove any of the provisions.
+We can see that the plugin lasso is very strict: only three provisions have non-zero coefficients when the penalties are set at the level suggested by the plugin algorithm. Compare this to the cross-validation results, which didn't remove any of the provisions.
+
+We can also set the gamma value as defined in Belloni et al. to something less strict, e.g. 0.3. 
+
+```{r try plugin lasso gamma, results = FALSE}
+reg6_gamma <- mlfitppml(data = trade2,
+                  dep = "export",
+                  fixed = list(c("exp", "time"), 
+                              c("imp", "time"),
+                              c("exp", "imp")),
+                  penalty = "lasso",
+                  method = "plugin",
+                  cluster = c("exp", "imp"), gamma_val=0.3)
+rownames(reg6$beta)[which(reg6_gamma$beta != 0)]
+```
+
+```{r plugin results gamma, results = FALSE}
+results_gamma <- data.frame(prov = rownames(reg6_gamma$beta), b_pre = reg6_gamma$beta_pre, b = reg6_gamma$beta, se = 0)
+results_gamma$se[!is.na(reg6_gamma$beta)] <- reg6_gamma$ses
+results_gamma
+```
+
+```{r display plugin results gamma, echo = FALSE}
+knitr::kable(list(results_gamma[1:7,], results_gamma[8:14,]), 
+             format = "pipe",
+             col.names = c("Provision", "Lasso Coefficient", "Post-Lasso Coefficient", "SE"), 
+             caption = "Table 6: Plugin Lasso results, different gamma value",
+             row.names = FALSE,
+             digits = 4)
+```
+
+When doing this, we see that more provisions than before are selected.
 
 ### Iceberg lasso (in development)
 
@@ -302,7 +350,7 @@ iceberg_results
 ```{r display iceberg results, echo = FALSE}
 knitr::kable(iceberg_results, 
              format = "pipe",
-             caption = "Table 6: Iceberg Lasso coefficients",
+             caption = "Table 7: Iceberg Lasso coefficients",
              row.names = TRUE,
              digits = 4)
 ```
@@ -320,6 +368,49 @@ knitr::kable(provcorr,
              caption = "Table 7: Iceberg Lasso correlations",
              row.names = TRUE,
              digits = 4)
+```
+
+# Bootstrap Lasso
+
+To illustrate this, we select the trade data, but now not dropping id and agreement variable.
+
+We want to cluster by agreement, that means that we draw observations with the same agreement ID. For this, we need to create a new agreement ID in the following way:
+
+```{r, message=FALSE, warning=FALSE, results=FALSE, eval=TRUE}
+trade3 <- trade[(trade$exp %in% selected) & (trade$imp %in% selected), ] # Now, we need id and agreement variable
+# Let's cluster by agreement
+trade3$alt_id <- trade3$id # ID refers to agreement ID
+trade3$alt_id[is.na(trade3$alt_id)] <- 0 # We set this to zero when the ID is missing, interpreting this as the country pair not being part of any agreement.
+
+# Create pair ID
+v1 <- do.call(paste, as.data.frame(t(apply(trade3[1:2], 1, sort))))
+trade3$pair <-  match(v1, unique(v1))
+trade3$pair <- trade3$pair + 500
+
+
+# Create maximal ID from the preexisting ID-variable inside each pair
+trade3 <- within(trade3, {alt_id2 = ave(alt_id,pair,FUN=max)} ) # This creates the maximum of the ID for each pair. This adjusts for the fact that some pairs might have been part of different agreements and we want to take get a unique agreement ID for each pair. 
+
+trade3$alt_id2[trade3$alt_id2==0] <- trade3$pair[trade3$alt_id2==0]
+unique(trade3$alt_id2) # This cluster variable collects pairs for pairs that are in agreement, uses the pair ID for those that are not.
+# Thus, it allows errors to be clustered within agreements.
+alt_id2 <- factor(trade3$alt_id2)
+trade3$clus <- alt_id2 #Add the ID to the data
+```
+
+Next, we run Bootstrap Lasso, which means drawing agreement clusters with replacement using the ID just created. In the bootstrap() command, first hdfeppml() is run, using a dummy which is one when any provision was in place and zero otherwise to get initial values of mu. These are then used in plugin Lasso. This is repeated B times (as specified in bootreps) and the command selects those provisions selected by plugin in at least a fraction of cases. This fraction can be specified by the option boot_threshold (Default is 1 pc).
+
+```{r try bootstrap lasso, warning=FALSE, message=FALSE, results = FALSE, eval=TRUE}
+set.seed(123)
+bs1 <- bootstrap(data=trade3, dep="export", cluster_id="clus", fixed=list(c("exp", "time"), c("imp", "time"), c("exp", "imp")), indep=7:22, bootreps=10, colcheck_x = TRUE, colcheck_x_fes = TRUE, boot_threshold = 0.01, post=TRUE, gamma_val=0.01, verbose=FALSE)
+```
+
+```{r bss table, echo = FALSE, eval=TRUE}
+knitr::kable(bs1$betas, 
+             format = "pipe",
+             caption = "Table 8: Coefficients of bootstrap repetitions",
+             row.names = TRUE,
+             digits = 2)
 ```
 
 

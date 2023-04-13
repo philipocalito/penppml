@@ -14,7 +14,7 @@ plugin_lasso_int(
   K = 50,
   verbose = FALSE,
   lambda = NULL,
-  phipost = FALSE
+  icepost = FALSE
 )
 }
 \arguments{
@@ -36,7 +36,7 @@ plugin_lasso_int(
 
 \item{lambda}{Penalty parameter (a number).}
 
-\item{phipost}{Logical. If \code{TRUE}, it carries out a post-lasso estimation with just the
+\item{icepost}{Logical. If \code{TRUE}, it carries out a post-lasso estimation with just the
 selected variables and reports the coefficients from this regression.}
 }
 \value{
@@ -44,7 +44,7 @@ A list with 14 elements, including \code{beta}, which is the only one we use in 
 For a full list, see \link[glmnet]{glmnet}.
 }
 \description{
-This is the internal function upon which the \code{ìceberg} wrapper is built. It performs standard
+This is the internal function upon which the \code{iceberg} wrapper is built. It performs standard
 plugin lasso PPML estimation without fixed effects, relying on \code{glmnet::glmnet}. As the other
 internals in the package, it needs a y vector and an x matrix.
 }

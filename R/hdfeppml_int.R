@@ -17,7 +17,6 @@
 #' @param tol Tolerance parameter for convergence of the IRLS algorithm.
 #' @param hdfetol Tolerance parameter for the within-transformation step,
 #'     passed on to \code{collapse::fhdwithin}.
-#' @param colcheck Logical. If \code{TRUE}, checks for perfect multicollinearity in \code{x}.
 #' @param mu Optional: initial values of the conditional mean \eqn{\mu}, to be used as weights in the
 #'     first iteration of the algorithm.
 #' @param saveX Logical. If \code{TRUE}, it returns the values of x and z after partialling out the
@@ -28,6 +27,11 @@
 #' @param maxiter Maximum number of iterations (a number).
 #' @param cluster Optional: a vector classifying observations into clusters (to use when calculating SEs).
 #' @param vcv Logical. If \code{TRUE} (the default), it returns standard errors.
+#' @param mu A vector of initial values for mu that can be passed to the command.
+#' @param colcheck_x Logical. If \code{TRUE}, this checks collinearity between the independent variables and drops the
+#' collinear variables.
+#' @param colcheck_x_fes Logical. If \code{TRUE}, this checks whether the independent variables are perfectly explained
+#' by the fixed effects drops those that are perfectly explained.
 #'
 #' @return A list with the following elements:
 #' \itemize{
@@ -115,7 +119,7 @@ hdfeppml_int <- function(y, x=NULL, fes=NULL, tol = 1e-8, hdfetol = 1e-4, colche
       } else {
         print("do collinearity check")
         include_x <- collinearity_check(y=y, x=x, hdfetol=1e-6, colcheck_x = colcheck_x, colcheck_x_fes = FALSE)
-        print(include_x)
+       # print(include_x)
         x <- x[, include_x]
       }
     }

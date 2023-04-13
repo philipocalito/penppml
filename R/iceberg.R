@@ -25,7 +25,7 @@
 #' \item \code{K}: Maximum number of iterations.
 #' \item \code{verbose}: Logical. If \code{TRUE}, prints information to the screen while evaluating.
 #' \item \code{lambda}: Penalty parameter (a number).
-#' \item \code{phipost}: Logical. If \code{TRUE}, it carries out a post-lasso estimation with just the
+#' \item \code{icepost}: Logical. If \code{TRUE}, it carries out a post-lasso estimation with just the
 #'     selected variables and reports the coefficients from this regression.
 #' }
 #'
@@ -44,14 +44,15 @@ iceberg <- function(data, dep, indep = NULL, selectobs = NULL, ...) {
   # First we do the data handling with genmodel:
   model <- genmodel(data = data, dep = dep, indep = indep, selectobs = selectobs)
 
+  y_mat <- as.matrix(model$y)
+  if(is.numeric(dep)){colnames(y_mat) <- colnames(data)[dep]} else {colnames(y_mat) <- dep}
   # Now we create the result matrix:
-  iceberg_results <- matrix(NA, nrow = ncol(model$x), ncol = ncol(model$y))
+  iceberg_results <- matrix(NA, nrow = ncol(model$x), ncol = ncol(y_mat))
   rownames(iceberg_results) <- colnames(model$x)
-  colnames(iceberg_results) <- colnames(model$y)
-
+  colnames(iceberg_results) <- colnames(y_mat)
   # Finally, we call plugin_lasso_int
-  for (v in 1:ncol(model$y)) {
-    temp <- plugin_lasso_int(y = model$y[, v], x = model$x, K = 15)
+  for (v in 1:ncol(y_mat)) {
+    temp <- plugin_lasso_int(y = y_mat[, v], x = model$x, K = 15)
     iceberg_results[, v] <- temp$beta
   }
   return(iceberg_results)
@@ -59,7 +60,7 @@ iceberg <- function(data, dep, indep = NULL, selectobs = NULL, ...) {
 
 #' Iceberg Lasso Implementation (in development)
 #'
-#' This is the internal function upon which the `ìceberg` wrapper is built. It performs standard
+#' This is the internal function upon which the `iceberg` wrapper is built. It performs standard
 #' plugin lasso PPML estimation without fixed effects, relying on \code{glmnet::glmnet}. As the other
 #' internals in the package, it needs a y vector and an x matrix.
 #'
@@ -72,7 +73,7 @@ iceberg <- function(data, dep, indep = NULL, selectobs = NULL, ...) {
 #' @param K Maximum number of iterations.
 #' @param verbose Logical. If \code{TRUE}, prints information to the screen while evaluating.
 #' @param lambda Penalty parameter (a number).
-#' @param phipost Logical. If \code{TRUE}, it carries out a post-lasso estimation with just the
+#' @param icepost Logical. If \code{TRUE}, it carries out a post-lasso estimation with just the
 #'     selected variables and reports the coefficients from this regression.
 #'
 #' @return A list with 14 elements, including \code{beta}, which is the only one we use in the wrapper.
@@ -80,7 +81,7 @@ iceberg <- function(data, dep, indep = NULL, selectobs = NULL, ...) {
 
 plugin_lasso_int <- function(y, x, tol = 1e-8,
                          glmnettol = 1e-12, penweights = NULL,
-                         colcheck = FALSE, K = 50, verbose = FALSE, lambda = NULL, phipost = FALSE) {
+                         colcheck = FALSE, K = 50, verbose = FALSE, lambda = NULL, icepost = FALSE) {
 
   x <- data.matrix(x)
   y <- as.matrix(y)
@@ -117,7 +118,7 @@ plugin_lasso_int <- function(y, x, tol = 1e-8,
 
   while (crit > tol & iter < K) {
     iter <- iter + 1
-    print(iter)
+#    print(iter)
     if (iter == 1) {
       e <- y - mean(y)
     }
@@ -136,7 +137,7 @@ plugin_lasso_int <- function(y, x, tol = 1e-8,
     penreg <- glmnet::glmnet(x = x, y = y, weights = rep(1/n, n), lambda = lambda_glmnet, thresh = glmnettol,
                      penalty.factor = phi, standardize = FALSE)
 
-    if (phipost == TRUE) {
+    if (icepost == TRUE) {
       x_select <- x[, as.numeric(penreg$beta) != 0]
       if (length(x_select) != 0) {
         b_temp <- rep(0, length(include_x))
@@ -173,9 +174,6 @@ plugin_lasso_int <- function(y, x, tol = 1e-8,
   k   <- ncol(matrix(x))
   n   <- length(y)
   select_x <- which(b != 0)
-
-  print(k)
-  print(b)
 
   penreg[["beta"]] <- b
   penreg[["deviance"]] <- deviance
